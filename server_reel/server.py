@@ -1,11 +1,15 @@
 import serial
 import requests
+import json
+import time
 
-SERIALPORT = "/dev/ttyACM0"  # Assurez-vous que le port série est correct
+SERIALPORT = "COM11" 
 BAUDRATE = 115200
+broker="localhost"
+port=1883
 
 ser = serial.Serial()
-
+    
 def initUART():
     ser.port = SERIALPORT
     ser.baudrate = BAUDRATE
@@ -15,7 +19,7 @@ def initUART():
     ser.timeout = None
     ser.xonxoff = False
     ser.rtscts = False
-    ser.dsrdtr = False
+    ser.dsrdtr = False  
     print("Starting Up Serial Monitor")
     try:
         ser.open()
@@ -25,59 +29,68 @@ def initUART():
         exit()
 
 def readUARTMessage():
-    while(True):
-        if ser.in_waiting > 0:
-            print(ser.readline().strip())
+    message = ser.readline().strip().decode('utf-8')
+    message = json.loads(message)
+    return message.get('message')
 
-def getApi(api_url):
+def update_sensors(id, intensity):
+    print('fonction update_sensors, id :' + str(id) + " intensity : " + str(intensity))
+    data = {"sensor": { "id": int(id), "intensity": int(intensity) } }
     try:
-        response = requests.get("http://localhost:3000" + api_url)
+        response = requests.put("http://localhost:3000/api/sensor", json=data)
         if response.status_code == 200:
-            return response.json()
-        else:
-            return 0
-    except Exception as e:
-        print(f"An error occurred: {e}")
+            print("Mise à jour des capteurs réussie. Réponse:", response.json())
+            return response
+        print("Échec de la mise à jour des capteurs. Code d'état:", response.status_code)
+        return None
+    except requests.exceptions.RequestException as e:
+        print("Une erreur s'est produite lors de l'envoi de la requête:", e)
         return None
 
+def parse_string_to_object(input_string):
+    if input_string.startswith(':'):
+        input_string = 'id' + input_string
+    
+    # Diviser la chaîne en segments basés sur ';'
+    segments = input_string.split(';')
 
+    # Créer un dictionnaire pour stocker les valeurs
+    objet = {}
+
+    # Traiter chaque segment pour extraire les clés et les valeurs
+    for segment in segments:
+        if ':' in segment:
+            key, value = segment.split(':', 1)
+            objet[key] = value
+
+    return objet
+    
+def update_all_sensor():
+    response = requests.get("http://localhost:3000/api/sensor/active")
+    if response.status_code == 200:
+        data = response.json()
+        for i in range(len(data)):
+            intensity = int(data[i]['intensity']) + 1
+            update_sensors((data[i]['id']), intensity)
+            print('capteur update')
+    
 if __name__ == "__main__":
     try:
-        # initUART()
-        id_source_value = None
-        id_capteur_value = None
-        intensity_value = None
-        id_destination_value = None
-
+        initUART()
+        temps_debut = time.time()
         while True:
-            sensors = getApi("/api/sensor")
+            print('\n\PREMIERE PARTIE\n')
+            new_fire = True
             data = readUARTMessage()
-            if data is not None and data != "":
-                print(data)
-                parts = data.split(',')
-                for part in parts:
-                    key_value = part.split(':')
-                    if len(key_value) == 2:
-                        key, value = key_value
-                        if key == 'id_source':
-                            id_source_value = int(value)
-                        elif key == 'id_capteur':
-                            id_capteur_value = int(value)
-                        elif key == 'intensity':
-                            intensity_value = int(value)
-                        elif key == 'id_destination':
-                            id_destination_value = int(value)
-                #print("Received: id_source:", id_source_value, ", id_capteur:", id_capteur_value, ", intensity:", intensity_value, ", id_destination:", id_destination_value)
-                capteur = getApi("/api/sensor/", id_capteur_value)
-                if capteur is not None and capteur != "": #si on trouve le capteur dans la bdd
-                    #alors on réupère ses coordonnées et on lance la fonction get_capteurs_proches
-                    #on regarde si ces capteurs ont une intensité > 0
-                    #si c'est le cas, alors on associe le capteur au feu où le capteur est déjà associé
-                    #sinon on crée un nouveau feu
-                    
-                    
-
-
+            print(data)
+            obj= parse_string_to_object(data)
+            update_sensors(obj.get('id'), obj.get('intensity'))
+            print(obj)
+            temps_actuel = time.time()
+            if temps_actuel - temps_debut >= 10:
+                update_all_sensor()
+                temps_debut = temps_actuel
+    
     except KeyboardInterrupt:
         print("Keyboard interrupt detected. Exiting...")
     finally:
