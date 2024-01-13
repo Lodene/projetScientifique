@@ -1,8 +1,8 @@
+import time
 import serial
 import requests
 
-
-SERIALPORT = "/dev/ttyACM0"
+SERIALPORT = "COM12"
 BAUDRATE = 115200
 ser = serial.Serial()
 
@@ -17,8 +17,8 @@ def initUART():
     ser.rtscts = False
     ser.dsrdtr = False
     print("Starting Up Serial Monitor")
-    try:
-        ser.open()
+    try: 
+        ser.open() 
     except serial.SerialException:
         print("Serial {} port not available".format(SERIALPORT))
         exit()
@@ -27,23 +27,24 @@ def sendUARTMessage(msg):
     ser.write(msg.encode())
     print("Message <" + msg + "> sent to micro:bit.")
 
-def readUARTMessage():
-    while ser.inWaiting() > 0:
-        message = ser.readline().decode('utf-8').strip()
-        message = message.rstrip('\r\n')  # Supprime les caractères de fin de ligne
-        print("Received from micro:bit: " + message)
+if __name__ == '__main__':
+    initUART()
+    while(True):
+        time.sleep(1)
+        response = requests.get("http://localhost:3000/api/sensor/active")
+        if response.status_code == 200:
+            data = response.json()
 
-if __name__ == 'main':
-    try :
-        initUART()
-        while(True):
-            message_to_send = "id_source:1,id_capteur:5,intensity:6,id_destination:158"
-            # response = requests.get("http://localhost:3000/api/sensor/active")
-            # if response.status_code == 200:
-            #     sendUARTMessage(response.json())
+            for i in range(len(data)):
+                data_str = "id:" + str(data[i]['id']) + ";intensity:" + str(data[i]['intensity']) + ";idDestination:cxf2153sd9r6qsw1qysfdi957\n"
+                sendUARTMessage(data_str)
+            print("Réponse de l'API : ", data)
+        else:
+            print("Échec de la requête. Code d'état : ", response.status_code)
+            
+        
+
+    ser.close()
 
 
-    except KeyboardInterrupt:
-        print("Keyboard interrupt detected. Exiting...")
-    finally:
-        ser.close()
+    
